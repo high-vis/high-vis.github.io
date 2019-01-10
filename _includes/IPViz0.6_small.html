@@ -1,0 +1,779 @@
+<style> /* set the CSS */
+
+body { font: 15px Arial;} 
+
+.button {
+	fill: lightblue;
+	opacity: 0;
+	text-decoration: underline;
+}
+
+
+.bed {
+
+	stroke: white;
+	stroke-width: 1;
+	fill-opacity: 0.5;
+	fill : lightgrey;	
+}
+
+div.tooltip {
+  position: absolute;
+  text-align: left;
+  width: 200px;
+  height: 80px;
+  padding: 8px;
+  font: 15px Arial;
+  background: rgba(255,255,255,0.7);
+#  border: solid 1px #aaa;
+  pointer-events: none;
+   font-style: italic;
+}
+
+path { 
+    stroke: grey;
+    stroke-width: 1.5;
+    fill: none;
+}
+
+
+.ward {
+	stroke-width: 1;
+	fill-opacity: 0.1;
+	fill: none;
+}
+
+
+.wardname{
+	font: 14px Arial bold;
+}
+
+
+.slider {
+  position: relative;
+  top: 12px;
+  left: 600px;
+}
+
+.slider-tray {
+  position: absolute;
+  width: 100%;
+  height: 6px;
+  border-top-color: #aaa;
+  border-radius: 4px;
+  background-color: lightgrey;
+
+}
+
+.slider-handle {
+  position: absolute;
+  top: 3px;
+}
+
+.slider-handle-icon {
+  width: 14px;
+  height: 14px;
+  border: solid 1px #aaa;
+  position: absolute;
+  border-radius: 10px;
+  background-color: #fff;
+
+  top: -8px;
+  left: -8px;
+}
+
+</style>
+<body>
+
+<!-- load the d3.js library -->    
+<!--script src="http://d3js.org/d3.v3.min.js"></script>-->
+<script src="d3.v3.min.js"></script>
+<script src="moment.js"></script>
+
+<p id="time"></p>
+<div class="slider"></div>
+
+<script>
+
+// load real wards - 0.5
+// add real connect patients to beds with middocc data
+// step through ward moves updating occupancy
+// add timer and timer buttons to control movement
+// highlight patients with different attributes - adm type, los, age, pathway etc
+// charts to tooltip?
+//
+
+
+// variables for circle and rect sizes
+var r;// = 6;
+var h = 96;
+var w = 96;
+var now;
+var starttime;
+var endtime;
+var increment;
+var speed;// = 200;
+var dur;// = 1000;
+
+var timervar;
+var running = false;
+
+var colourCategory = 1;
+var positionCategory = 1;
+
+var slidermax = 500;
+var slidermin = 100;
+
+var tooltopOffsetX = 15;
+var tooltopOffsetY = 15;
+
+var width = 100;
+
+var x = d3.scale.linear()
+    .domain([slidermax, slidermin])
+    .range([0, width])
+    .clamp(true);
+
+var dispatch = d3.dispatch("sliderChange");
+
+var slider = d3.select(".slider").style("width", width + "px");
+
+var sliderTray = slider.append("div").attr("class", "slider-tray");
+
+var sliderHandle = slider.append("rect").attr("class", "slider-handle");
+
+sliderHandle.append("div").attr("class", "slider-handle-icon")
+
+slider.call(d3.behavior.drag()
+    .on("dragstart", function() {
+      dispatch.sliderChange(x.invert(d3.mouse(sliderTray.node())[0]));
+      d3.event.sourceEvent.preventDefault();
+    })
+    .on("drag", function() {
+      dispatch.sliderChange(x.invert(d3.mouse(sliderTray.node())[0]));
+    })
+)
+
+
+// create custom sub-selections by adding methods to d3.selection.prototype
+// allows me to select last (and first but not needed) patient circle when shuffling 
+// patients to fill gaps
+//
+d3.selection.prototype.last = function() {
+  var last = this.size() - 1;
+  return d3.select(this[0][last]);
+};
+d3.selection.prototype.first = function() {
+  return d3.select(this[0][0]);
+};
+
+
+// svg layout
+//
+var margin = {top: 30, right: 20, bottom: 30, left: 30},
+    width = 1750 - margin.left - margin.right,
+    height = 1050 - margin.top - margin.bottom;
+  
+
+// Adds the svg canvas
+var svg = d3.select("body").append("svg")
+	.attr("width", width + margin.left + margin.right)
+	.attr("height", height + margin.top + margin.bottom)
+
+
+// initialise lookups
+//
+var patientLookup={};
+var wardLookup={};
+var movesLookup={};
+var wardcoloursLookup = {};
+
+
+// Get the data
+d3.json("IPdataClean2.json", function(error, data) {
+
+	if (error) throw error;
+
+	dispatch.on("sliderChange.slider", function(value) {
+		sliderHandle.style("left", x(value) + "px")
+		console.log(parseInt(value));
+		if(running){
+			pause();
+			speed = parseInt(value);
+			startresume();
+		} else {
+			speed = parseInt(value);
+		}
+	})
+
+	svg.append("text")
+		.attr("x", 450)
+		.attr("y", 20)
+		.text("Speed up/slow down")
+
+	// define time vars
+	//
+	now = moment(data.starttime, data.timeformat);
+	d3.select('p[id="time"]').text(now.format("DD/MM/YY HH:mm"));
+	starttime = moment(data.starttime, data.timeformat);
+	endtime = moment(data.endtime, data.timeformat);
+
+	increment = 1;	// number of minutes to increment each tick of the timer
+
+	speed = data.speed;
+	r = data.radius;
+	dur = data.transduration;
+
+	// ward data lookup indexed by ward name
+	//
+	data.wards.forEach( function(d) {
+		wardLookup[d.name]=d;
+	})
+
+	data.wardcolours.forEach (function(d) {
+		wardcoloursLookup[d.division] = d;
+	})
+
+	// initialise moves lookup, indexed by time
+	//
+	data.moves.forEach( function(m) {
+
+		m.time = moment(m.time, data.timeformat);
+
+		if(!movesLookup[m.time])
+			movesLookup[m.time]=[];
+
+		movesLookup[m.time].push(m);
+	})
+
+	// create g elements as placeholders for the wards
+	// and to avoid having to translate all the rects, texts and lines
+	//
+	var gWard = svg.selectAll("g")
+		.data(data.wards)
+		.enter().append("g")
+		.attr("id", function(d){ return d.name})		
+		.attr("class", "wardcontainer")
+		.attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"})
+	;
+
+	// rect to provide outline around entire block
+	//
+	wards = gWard.selectAll()
+		.data(data.wards)
+		.enter().append("rect")
+		.filter( function(d) { return d.name == this.parentNode.id })
+		.attr("class", "ward")
+		.attr("height",  h)
+		.attr("width", w)
+		.attr("stroke", "lightgrey")
+//		.attr("stroke", function(d) { return wardcoloursLookup[d.division].colour; })
+//		.attr("fill", function(d) {
+//			return wardcoloursLookup[d.division].colour ;
+//		})
+	;
+
+	// add bed elements to each ward
+	//
+	data.wards.forEach( function(d) 
+	{
+		var currRow = 0;
+		var currCol = 0;
+		var currward = svg.select("g#" + d.name);
+
+		// loop through each possible bed as defined by the ward
+		//
+		for( i=0; i < d.maxbeds; i++)
+		{	
+			// limit number of columns in bed grid to 8
+			//
+			if(currCol>=8)
+			{
+				currCol=0;
+				currRow++;
+			}
+
+			// g element to hold the bed
+			//
+			var currg = currward.append("g")
+				.attr("id", function(){return "b" + (i+1);})
+				.attr("transform", function(){ return "translate(" + (12*currCol) + "," + (h-12 - 12*currRow) + ")"})
+			
+			// add a rect to the element
+			//
+			currg.append("rect")
+				.attr("id", function(){return "b" + (i+1);})
+				.attr("class", "bed")
+				.attr("height", "12")
+				.attr("width", "12")
+			;
+			currCol++;
+		}
+	})
+
+	// populate beds with midnight patient data
+	//
+	data.midnight.forEach( function(pt)
+	{
+		patientLookup[pt.ID] = pt;		
+		
+		// if not yet admitted patient, populate the wards with the patients at midnight
+		if(pt.currLocn != "Admission")
+		{
+			addPatient(pt, wardLookup[pt.currLocn]);
+		}
+	})
+
+	// Add text label to each ward
+	//
+	gWard.selectAll("text")
+		.data(data.wards)
+		.enter().append("text")
+		.filter( function(d) { return d.name == this.parentNode.id })
+		.attr("id", function(d){ return d.name})
+		.attr("class", "wardname")
+		.style("fill", function(d) { return wardcoloursLookup[d.division].colour; })
+//		.style("fill", "grey")
+//		.style("fill-opacity", 0.7)
+		.text(function(d){return d.name;})
+		.attr("transform", function(d) { return "translate(2,15)"})
+		.on("mouseover", function(d) { 			
+			showtooltip(
+				"Ward: <t>" + d.name + 
+				"<br>Division: <t>" + d.division + 
+				"<br>Occupancy: " + d.count + "/" + d.maxbeds,
+				(d3.event.pageX + 20) + "px",
+				(d3.event.pageY + 20) + "px");
+		})
+		.on("mouseout", function(d) {  hidetooltip();  })
+	;
+
+	// Play button label
+	svg.append("text")
+		.attr("x", 5)
+		.attr("y", 20)
+		.text("Play")
+	
+	// Play button
+	//
+	svg.append("rect")
+		.attr("class", "button")
+		.attr("id", "button")
+		.attr("height", "32")
+		.attr("width", "52")
+		.attr("x", 0)
+		.attr("y", 0)	
+		.on("click", function(){ 
+			
+			var buttonText = "";
+			d3.selectAll("text").filter(function() {
+				return /Play|Pause/.test(d3.select(this).text());
+			})
+			.text( function() {
+				if(!running){
+					buttonText = "Pause";
+					startresume();
+				}else{
+					buttonText=" Play";
+					pause();
+				}	
+				return buttonText;
+			});
+		})
+		.on("mouseover", function(d) { 			
+			showtooltip("Play - start the timer.  Patients will move in and out of beds - use the slider to speed up and slow down.",
+				(d3.event.pageX + tooltopOffsetX) + "px",
+				(d3.event.pageY + tooltopOffsetY) + "px");
+		})
+		.on("mouseout", function(d) {  hidetooltip();  })
+
+	// play function
+	//
+	function startresume(){
+
+		if(!running){
+			d3.select("i[id=playpause]").attr("class", "fa fa-pause fa-lg")
+			timevar = setInterval(function(){ updatePositions() }, speed);
+			running = true;
+			console.log("play");
+		}
+	}
+		
+	// Pause function
+	//
+	function pause(){
+		if(running){
+			d3.select("i[id=playpause]").attr("class", "fa fa-play fa-lg")
+			clearInterval(timevar);
+			d3.select('p[id="time"]').text(now.format("DD/MM/YY HH:mm"));
+			running = false;
+			console.log("pause");
+		}
+	}
+
+	function updatePositions(){
+	
+		// **** add functionality to increase LOS when crossing midnight ****
+
+		// step through moves list
+		//
+		if( moment(now).isBefore(endtime) ){	
+
+			// if there is a move for this moment 
+			//
+			if(movesLookup[now]){
+
+				// pause the simulation
+				//
+				pause();
+
+				movesLookup[now].forEach(function (m)
+				{
+					// if pt is null then add new patient to patientLookup based on movelist
+					// otherwise use the patient that already exists in a bed somewhere
+					//
+					var pt = patientLookup[m.ID];
+					var to = wardLookup[m.locn];
+					if(pt){
+						var from = wardLookup[pt.currLocn];
+						removePatient(pt, from, patientLookup);
+					} else {					
+						var from = data.wards[0];  //Admission position
+						// create new patient
+						var pt = {};
+						pt.ID = m.ID;
+						pt.LOS = 0;
+						pt.PTN = m.PTN;
+						pt.currLocn = "Admission";
+						pt.admtype = m.admtype;
+						
+						//add new pt to pt lookup
+						patientLookup[pt.ID] = pt
+					}			
+
+					console.log(m.time.format("DD/MM/YY HH:mm"), pt.PTN, from.name, to.name);
+
+					moveCircle(from, to, pt);
+
+					if(m.locn != "Discharged")
+						addPatient(pt, to);
+				})
+
+				startresume();
+			}
+			now.add(increment, "minute");
+			d3.select('p[id="time"]').text(now.format("DD/MM/YY HH:mm"));
+		}
+		else {
+			pause();
+		}
+	}
+});
+
+// adm type colour
+svg.append("text")
+	.attr("x", 75)
+	.attr("y", 20)
+	.text("Change colours to LOS")
+
+// add button to colour circles by adm type
+//
+svg.append("rect")
+	.attr("class", "button")
+	.attr("id", "colourAdmtype")
+	.attr("height", "32")
+	.attr("width", "200")
+	.attr("x", "70")
+	.attr("y", "0")
+	.on("click", function(){
+				
+		var buttonText = "";
+		d3.selectAll("text").filter(function() {
+			return /Change c*/.test(d3.select(this).text());
+		})
+		.text( function() {
+			if(colourCategory == 1){
+				colourCategory = 2;
+				buttonText = "Change colours to adm type";
+			}else if(colourCategory == 2){
+				colourCategory = 1;
+				buttonText="Change colours to LOS";
+			}	
+			return buttonText;
+		});	
+		svg.selectAll(".patient")
+			.attr("fill", function(){ return changeColour(patientLookup[this.id.substring(1)]); })
+		console.log("colour by admtype");
+	})
+	.on("mouseover", function(d) { 		
+		if(colourCategory == 1){	
+		showtooltip("Colour by admission"+
+				"<br>- green = elective"+
+				"<br>- orange = non-elective"+
+				"<br>- dark pink = maternity"+
+				"<br>- light pink = birth",
+			(d3.event.pageX + tooltopOffsetX) + "px",
+			(d3.event.pageY + tooltopOffsetY) + "px");
+		} else if(colourCategory==2){
+				showtooltip("Colour by LOS<br>- red = LOS 7+<br>- blue = LOS <7",
+			(d3.event.pageX + tooltopOffsetX) + "px",
+			(d3.event.pageY + tooltopOffsetY) + "px");
+		}
+	})
+	.on("mouseout", function(d) {  hidetooltip();  })
+
+	
+// Position by division
+//
+svg.append("text")
+	.attr("x", 295)
+	.attr("y", 20)
+	.text("Position by division")
+
+svg.append("rect")
+	.attr("class", "button")
+	.attr("id", "move test")
+	.attr("height", "32")
+	.attr("width", "140")
+	.attr("x", "290")
+	.attr("y", "0")
+	.on("click", function(){  
+
+		var buttonText = "";
+		d3.selectAll("text")
+			.filter(function() {
+			return /Position by*/.test(d3.select(this).text());
+		})
+		.text( function() {
+			if(positionCategory == 1){
+				positionCategory = 2;
+				buttonText = "Position by location";
+			}else if(positionCategory == 2){
+				positionCategory = 1;
+				buttonText="Position by division";
+			}	
+			return buttonText;
+		});	
+	
+		svg.selectAll(".wardcontainer")
+			.transition().duration(1000)
+			.attr("transform", function() { 
+				if(positionCategory==1){
+					wardLookup[this.id].x = wardLookup[this.id].x1;
+					wardLookup[this.id].y = wardLookup[this.id].y1;
+					return "translate(" + wardLookup[this.id].x + "," + wardLookup[this.id].y + ")"
+				} else if (positionCategory==2){
+					wardLookup[this.id].x = wardLookup[this.id].x2;
+					wardLookup[this.id].y = wardLookup[this.id].y2;
+					return "translate(" + wardLookup[this.id].x2 + "," + wardLookup[this.id].y2 + ")"
+				}
+			})
+	})
+	.on("mouseover", function(d) { 	
+		if(positionCategory==1){
+			showtooltip("Wards shown in physical location, click to change to by division",
+				(d3.event.pageX + tooltopOffsetX) + "px",
+				(d3.event.pageY + tooltopOffsetY) + "px");
+		} else if(positionCategory==2){
+			showtooltip("Wards shown by division, click to change to physical location",
+				(d3.event.pageX + tooltopOffsetX) + "px",
+				(d3.event.pageY + tooltopOffsetY) + "px");
+		}
+	})
+	.on("mouseout", function(d) {  hidetooltip();  })
+
+
+function changeColour(pt)
+{
+	var retColour;
+
+	try{
+
+	if(colourCategory==1)
+	{
+		if(pt.admtype=="Elective"){
+			retColour = "green";}	
+		else if(pt.admtype=="Emergency"){
+			retColour = "orange";}
+		else if(pt.admtype=="Maternity"){
+			retColour = "PaleVioletRed";}
+		else if(pt.admtype=="Birth"){
+			retColour = "pink";}
+		else{
+			retColour = "dodgerblue";}
+	}
+	else if(colourCategory==2)
+	{
+		if(pt.LOS>=7)
+			retColour = "orangered";
+		else
+			retColour = "skyblue";
+	}
+	}
+	catch(err){
+		console.log(err);
+	}
+	return retColour;
+}
+
+
+// tool tip
+//
+var div = d3.select("body").append("div")
+	.attr("class", "tooltip")               
+	.style("opacity", 0);
+
+
+
+function showtooltip(t,left,top){	
+	div.html(t).style("left", left)     
+		.style("top", top)
+		.style("opacity", 1);
+}
+
+function hidetooltip(){
+	div.style("opacity", 0);
+}
+
+
+// remove patient from currward
+//
+function removePatient(pt, ward, ptlookup)
+{
+
+	console.log(ward.name + ": Remove " + pt.PTN + " from bed " + pt.currbed)
+
+	// find ward and remove patient
+	//
+	var thisward = svg.select("g#" + pt.currLocn);
+	var thisbed = thisward.select("g#b" + pt.currbed);
+	var removed = thisbed.select("circle#c" + pt.ID);
+	removed.remove();
+
+
+	if(pt.currbed < ward.count){
+
+		// find last patient using occupancy value and move to empty bed
+		//
+		var last = thisward.select("g#b" + ward.count).select("circle");
+	
+		thisbed.append(function() {
+		  return last.node();
+		});
+
+
+		// update bed location
+		//
+		ptlookup[last.attr("id").substring(1)].currbed = pt.currbed;	
+	
+	}
+
+	// decrease occupancy of ward
+	//
+	ward.count--;
+
+//	return removed;
+
+
+	
+}
+
+
+// add a patient to a ward - used to initialise positions and for transfers
+//
+function addPatient(pt, ward, removed)
+{
+	ward.count++;
+
+	theward =  svg.select("g#" + ward.name)
+	thebed =  theward.select("g#b" + ward.count)
+
+	thebed.append("circle")
+		.attr("id", function(){ return "c"+pt.ID })
+		.attr("class", "patient")
+		.attr("fill", function(){
+			return changeColour(pt);
+		})
+		.attr("fill-opacity", 0.5)
+		.on("mouseover", function(d) {
+			showtooltip(
+					"Ward: " + ward.name + 
+					"<br>PTN: " + pt.PTN +
+					"<br>Adm type: " + pt.admtype +
+					"<br>LOS: " + pt.LOS,
+					(d3.event.pageX + tooltopOffsetX) + "px",
+					(d3.event.pageY + tooltopOffsetY) + "px");
+			
+		})
+		.on("mouseout", function() {  hidetooltip();  })
+		.attr("cx", 6 )
+		.attr("cy", 6 )
+		.transition().delay(dur)
+		.attr("r", r)
+	;
+
+	// add bed to patient so we know where they are
+	//
+	pt.currbed = ward.count;
+	pt.currLocn = ward.name;
+
+	console.log(ward.name + ": Add " + pt.PTN + " to bed " + pt.currbed)
+}
+
+
+
+
+function moveCircle(from, to, pt)
+{
+	// test code to add circle to ward, move it and then remove it.
+	svg.append("circle")
+		.attr("r", 0)
+		.attr("cx", function(){ return from.x } )
+		.attr("cy", function(){ return from.y } )
+		.attr("fill", function(){
+			return changeColour(pt);
+		})
+		.attr("transform", "translate(50,50)")
+		.transition().duration(0)
+		.attr("r", r)
+		.each("end", function(){
+
+			d3.select(this)
+				.transition().duration(dur).ease("linear")
+				.attr("cx", to.x)
+				.attr("cy", to.y)
+				.each("end", function(){
+
+					d3.select(this)
+						.transition().duration(dur/2)
+						.attr("r",0)
+						.remove();						
+				})
+		})
+}
+
+function wrap(text, width) {
+  text.each(function() {
+    var text = d3.select(this),
+        words = text.text().split(/\s+/).reverse(),
+        word,
+        line = [],
+        lineNumber = 0,
+        lineHeight = 1.1, // ems
+        y = text.attr("y"),
+        dy = parseFloat(text.attr("dy")),
+        tspan = text.text(null).append("tspan").attr("x", 0).attr("y", y).attr("dy", dy + "em");
+    while (word = words.pop()) {
+      line.push(word);
+      tspan.text(line.join(" "));
+      if (tspan.node().getComputedTextLength() > width) {
+        line.pop();
+        tspan.text(line.join(" "));
+        line = [word];
+        tspan = text.append("tspan").attr("x", 0).attr("y", y).attr("dy", ++lineNumber * lineHeight + dy + "em").text(word);
+      }
+    }
+  });
+}
+
+<
