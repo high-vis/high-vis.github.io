@@ -1,0 +1,7 @@
+---
+layout: post
+title: Swiss Roads image
+---
+I made this
+
+![_config.yml]({{ site.baseurl }}/images/swissroads.jpg)
