@@ -1,0 +1,65 @@
+{
+
+"name": "IPtest",
+"timeformat": "DD/MM/YY HH:mm",
+"starttime": "01/01/19 07:00",
+"endtime": "01/01/19 08:00",
+"width": 500,
+"height": 300,
+"radius": 6,
+"speed": 500,
+"transduration": 1000,
+
+"wardcolours" : [
+{"division" : "A", "colour":"crimson"},
+{"division" : "B", "colour":"limegreen"},
+{"division" : "C", "colour":"purple"},
+{"division" : "D", "colour":"mediumblue"},
+{"division" : "E", "colour":"orange"},
+{"division" : "X", "colour":"grey"}
+],
+
+"wards": [
+	 
+{"name":"Admission","division":"X","x":100,"y":400,"x1":100,"y1":400,"x2":100,"y2":400,"count":0,"maxbeds":0 },
+{"name":"Discharged","division":"X","x":1000,"y":400,"x1":1000,"y1":400,"x2":1000,"y2":400,"count":0,"maxbeds":0 },	 
+{"name":"W1","division":"A","x":400,"y":200,"x1":400,"y1":200,"x2":400,"y2":300,"count":0,"maxbeds":30 },
+{"name":"W2","division":"B","x":500,"y":200,"x1":500,"y1":200,"x2":600,"y2":300,"count":0,"maxbeds":32 },
+{"name":"W3","division":"A","x":400,"y":100,"x1":400,"y1":100,"x2":400,"y2":200,"count":0,"maxbeds":28 },
+{"name":"W4","division":"B","x":500,"y":100,"x1":500,"y1":100,"x2":600,"y2":200,"count":0,"maxbeds":32 },
+{"name":"W5","division":"B","x":700,"y":200,"x1":700,"y1":200,"x2":600,"y2":100,"count":0,"maxbeds":29 },
+{"name":"W6","division":"A","x":800,"y":200,"x1":800,"y1":200,"x2":400,"y2":100,"count":0,"maxbeds":32 }
+
+],
+
+
+"midnight": [
+
+{"ID":"1","PTN":"963", "currLocn":"W1", "admtype":"Elective", "LOS":1},
+{"ID":"2","PTN":"964", "currLocn":"W1", "admtype":"Elective", "LOS":9},
+{"ID":"3","PTN":"236", "currLocn":"W2", "admtype":"Elective", "LOS":1},
+{"ID":"4","PTN":"326", "currLocn":"W2", "admtype":"Emergency", "LOS":8},
+{"ID":"5","PTN":"245", "currLocn":"W2", "admtype":"Elective", "LOS":3}
+
+],
+
+"moves": [
+
+{"time":"01/01/19 07:01", "ID":"1012","PTN":"1010", "locn":"W1", "admtype":"Emergency"},
+{"time":"01/01/19 07:05", "ID":"1131","PTN":"1126", "locn":"W2", "admtype":"Emergency"},
+{"time":"01/01/19 07:09", "ID":"1331","PTN":"1320", "locn":"W1", "admtype":"Emergency"},
+{"time":"01/01/19 07:10", "ID":"1283","PTN":"1274", "locn":"W2", "admtype":"Elective"},
+{"time":"01/01/19 07:11", "ID":"1614","PTN":"1586", "locn":"W1", "admtype":"Elective"},
+{"time":"01/01/19 07:12", "ID":"1352","PTN":"1340", "locn":"W1", "admtype":"Elective"},
+{"time":"01/01/19 07:13", "ID":"979","PTN":"978", "locn":"W2", "admtype":"Elective"},
+{"time":"01/01/19 07:14", "ID":"1","PTN":"963", "locn":"Discharged", "admtype":"Elective"},
+{"time":"01/01/19 07:15", "ID":"1114","PTN":"1109", "locn":"W1", "admtype":"Elective"},
+{"time":"01/01/19 07:18", "ID":"1672","PTN":"1644", "locn":"W1", "admtype":"Elective"},
+{"time":"01/01/19 07:19", "ID":"1484","PTN":"1463", "locn":"W1", "admtype":"Elective"},
+{"time":"01/01/19 07:21", "ID":"1217","PTN":"1210", "locn":"W2", "admtype":"Elective"},
+{"time":"01/01/19 07:30", "ID":"989","PTN":"988", "locn":"W1", "admtype":"Elective"},
+{"time":"01/01/19 07:30", "ID":"1331","PTN":"1320", "locn":"Discharged", "admtype":"Emergency"}
+ 	 
+]
+
+}
